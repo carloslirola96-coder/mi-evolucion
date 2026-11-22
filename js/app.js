@@ -8,10 +8,30 @@ class Application {
   }
 
   init() {
+    this.checkUrlApiKey();
     this.setupTheme();
     this.bindEvents();
     this.switchTab('inicio');
     WorkoutEngine.init();
+  }
+
+  // Permite configurar la clave desde el PC enviándote un enlace a ti mismo (1 solo clic, sin escribir en el móvil)
+  checkUrlApiKey() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('key')) {
+        const key = params.get('key').trim();
+        if (key) {
+          const settings = window.AppStore.getSettings();
+          settings.geminiApiKey = key;
+          window.AppStore.saveSettings(settings);
+          window.history.replaceState({}, document.title, window.location.pathname);
+          setTimeout(() => alert("¡Clave de IA configurada con éxito en tu móvil! Ya puedes analizar tus platos con fotos."), 400);
+        }
+      }
+    } catch (e) {
+      console.warn("Error leyendo URL params:", e);
+    }
   }
 
   setupTheme() {

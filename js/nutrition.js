@@ -53,10 +53,100 @@ class NutritionManager {
     };
   }
 
-  // Simulación y procesado de análisis fotográfico mediante IA multimodal
-  analyzeMealPhoto(file, promptComment) {
+  // Helper para convertir archivo de imagen a Base64
+  fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64Data = reader.result.split(',')[1];
+        resolve(base64Data);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Análisis fotográfico mediante IA multimodal (Gemini Vision API real o motor local)
+  async analyzeMealPhoto(file, promptComment) {
+    const settings = window.AppStore.getSettings();
+    const apiKey = settings && settings.geminiApiKey ? settings.geminiApiKey.trim() : null;
+
+    // Si el usuario ha configurado su clave gratuita de Google AI Studio, usar Gemini Vision real
+    if (apiKey) {
+      try {
+        const base64Image = await this.fileToBase64(file);
+        const mimeType = file.type || "image/jpeg";
+
+        const systemPrompt = `
+          Eres un nutricionista deportivo especializado en deportistas con patologías digestivas.
+          El usuario tiene: CELIAQUÍA ESTRICTA (alerta máxima de gluten o contaminación cruzada), INTOLERANCIA A LA LACTOSA y HERNIA DE HIATO.
+          Analiza la fotografía del plato de comida. Identifica los ingredientes visibles, estima cantidades realistas en gramos y calcula calorías, proteínas, hidratos y grasas.
+          Debes responder OBLIGATORIAMENTE en formato JSON puro según este esquema:
+          {
+            "dishName": "Nombre descriptivo del plato en español",
+            "confidenceLevel": "Alta / Media / Baja con % estimado",
+            "uncertaintyDisclaimer": "Aviso de incertidumbre (ej: cantidad de aceite no visible o peso exacto)",
+            "celiacAlert": "Advertencia específica sobre posible gluten, caldos preparados o contaminación en este tipo de plato",
+            "items": [
+              {
+                "name": "Nombre del ingrediente",
+                "estimatedPortion": "Porción aproximada (ej: 180g)",
+                "calories": 250,
+                "protein": 35,
+                "carbs": 0,
+                "fat": 5
+              }
+            ],
+            "totalCalories": 650,
+            "totalProtein": 45,
+            "totalCarbs": 60,
+            "totalFat": 18
+          }
+          Aclaraciones adicionales del usuario: "${promptComment || 'Ninguna'}".
+        `;
+
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: systemPrompt },
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: base64Image
+                    }
+                  }
+                ]
+              }
+            ],
+            generationConfig: {
+              response_mime_type: "application/json",
+              temperature: 0.2
+            }
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (jsonText) {
+            const parsed = JSON.parse(jsonText);
+            return parsed;
+          }
+        } else {
+          console.warn("Fallo en Gemini API, usando motor de respaldo local:", await response.text());
+        }
+      } catch (err) {
+        console.warn("Error conectando con Gemini Vision:", err);
+      }
+    }
+
+    // Motor local de respaldo cuando no hay clave o no hay conexión
     return new Promise((resolve) => {
-      // Simulación de respuesta estructurada realista del motor de visión
       setTimeout(() => {
         const isBreakfast = promptComment && promptComment.toLowerCase().includes("tostada");
         
