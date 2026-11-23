@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mi-evolucion-v1';
+const CACHE_NAME = 'mi-evolucion-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -32,9 +32,19 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // No interceptar peticiones POST ni llamadas externas (como Gemini API)
+  if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
+  // Network-first: carga siempre la versión más reciente y usa caché solo sin conexión
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request).catch(() => caches.match('./index.html'));
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        const clone = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request).then((res) => res || caches.match('./index.html')))
   );
 });

@@ -53,13 +53,40 @@ class NutritionManager {
     };
   }
 
-  // Helper para convertir archivo de imagen a Base64
-  fileToBase64(file) {
+  // Helper para comprimir y convertir archivo de imagen a Base64 (evita fallos con fotos grandes de móvil)
+  fileToBase64(file, maxDimension = 1280) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const base64Data = reader.result.split(',')[1];
-        resolve(base64Data);
+        const dataUrl = reader.result;
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxDimension || height > maxDimension) {
+            const ratio = Math.min(maxDimension / width, maxDimension / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          resolve({
+            base64: compressedDataUrl.split(',')[1],
+            mimeType: 'image/jpeg',
+            previewUrl: compressedDataUrl
+          });
+        };
+        img.onerror = () => {
+          resolve({
+            base64: dataUrl.split(',')[1],
+            mimeType: file.type || 'image/jpeg',
+            previewUrl: dataUrl
+          });
+        };
+        img.src = dataUrl;
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -70,82 +97,87 @@ class NutritionManager {
   async analyzeMealPhoto(file, promptComment) {
     const settings = window.AppStore.getSettings();
     const apiKey = settings && settings.geminiApiKey ? settings.geminiApiKey.trim() : null;
+    let imageData = null;
+    let fallbackReason = null;
 
-    // Si el usuario ha configurado su clave gratuita de Google AI Studio, usar Gemini Vision real
-    if (apiKey) {
-      try {
-        const base64Image = await this.fileToBase64(file);
-        const mimeType = file.type || "image/jpeg";
-
-        const systemPrompt = `
-          Eres un nutricionista deportivo especializado en deportistas con patologías digestivas.
-          El usuario tiene: CELIAQUÍA ESTRICTA (alerta máxima de gluten o contaminación cruzada), INTOLERANCIA A LA LACTOSA y HERNIA DE HIATO.
-          Analiza la fotografía del plato de comida. Identifica los ingredientes visibles, estima cantidades realistas en gramos y calcula calorías, proteínas, hidratos y grasas.
-          Debes responder OBLIGATORIAMENTE en formato JSON puro según este esquema:
-          {
-            "dishName": "Nombre descriptivo del plato en español",
-            "confidenceLevel": "Alta / Media / Baja con % estimado",
-            "uncertaintyDisclaimer": "Aviso de incertidumbre (ej: cantidad de aceite no visible o peso exacto)",
-            "celiacAlert": "Advertencia específica sobre posible gluten, caldos preparados o contaminación en este tipo de plato",
-            "items": [
-              {
-                "name": "Nombre del ingrediente",
-                "estimatedPortion": "Porción aproximada (ej: 180g)",
-                "calories": 250,
-                "protein": 35,
-                "carbs": 0,
-                "fat": 5
-              }
-            ],
-            "totalCalories": 650,
-            "totalProtein": 45,
-            "totalCarbs": 60,
-            "totalFat": 18
-          }
-          Aclaraciones adicionales del usuario: "${promptComment || 'Ninguna'}".
-        `;
-
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: systemPrompt },
-                  {
-                    inline_data: {
-                      mime_type: mimeType,
-                      data: base64Image
-                    }
-                  }
-                ]
-              }
-            ],
-            generationConfig: {
-              response_mime_type: "application/json",
-              temperature: 0.2
-            }
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (jsonText) {
-            const parsed = JSON.parse(jsonText);
-            return parsed;
-          }
-        } else {
-          console.warn("Fallo en Gemini API, usando motor de respaldo local:", await response.text());
-        }
-      } catch (err) {
-        console.warn("Error conectando con Gemini Vision:", err);
-      }
+    try {
+      imageData = await this.fileToBase64(file);
+    } catch (e) {
+      console.warn("No se pudo leer la imagen:", e);
     }
 
-    // Motor local de respaldo cuando no hay clave o no hay conexión
+    // Si el usuario ha configurado su clave gratuita de Google AI Studio, usar Gemini Vision real
+    if (apiKey && imageData) {
+      const systemPrompt = `
+        Eres un nutricionista deportivo especializado en deportistas con patologías digestivas.
+        El usuario tiene: CELIAQUÍA ESTRICTA (alerta máxima de gluten o contaminación cruzada), INTOLERANCIA A LA LACTOSA y HERNIA DE HIATO.
+        Analiza la fotografía del plato de comida. Identifica los ingredientes visibles, estima cantidades realistas en gramos y calcula calorías, proteínas, hidratos y grasas.
+        Debes responder OBLIGATORIAMENTE en formato JSON puro (sin markdown ni texto extra) según este esquema exacto:
+        {
+          "dishName": "Nombre descriptivo del plato en español",
+          "confidenceLevel": "Alta / Media / Baja con % estimado",
+          "uncertaintyDisclaimer": "Aviso de incertidumbre (ej: cantidad de aceite no visible o peso exacto)",
+          "celiacAlert": "Advertencia específica sobre posible gluten, caldos preparados o contaminación en este tipo de plato",
+          "items": [
+            {
+              "name": "Nombre del ingrediente",
+              "estimatedPortion": "Porción aproximada (ej: 180g)",
+              "calories": 250,
+              "protein": 35,
+              "carbs": 0,
+              "fat": 5
+            }
+          ],
+          "totalCalories": 650,
+          "totalProtein": 45,
+          "totalCarbs": 60,
+          "totalFat": 18
+        }
+        Aclaraciones adicionales del usuario: "${promptComment || 'Ninguna'}".
+      `;
+
+      try {
+        const { model, data } = await window.GeminiHelper.generateContent(apiKey, {
+          contents: [
+            {
+              parts: [
+                { text: systemPrompt },
+                {
+                  inline_data: {
+                    mime_type: imageData.mimeType,
+                    data: imageData.base64
+                  }
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            response_mime_type: "application/json",
+            temperature: 0.2
+          }
+        });
+
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          const parsed = JSON.parse(cleaned);
+          parsed.items = Array.isArray(parsed.items) ? parsed.items : [];
+          parsed.source = 'gemini';
+          parsed.modelUsed = model;
+          parsed.photoPreview = imageData.previewUrl;
+          this.currentPendingMeal = parsed;
+          return parsed;
+        }
+        fallbackReason = `${model}: respuesta vacía`;
+      } catch (err) {
+        fallbackReason = err.message || 'Error de conexión con Gemini Vision';
+        console.warn("Error conectando con Gemini Vision:", err);
+      }
+    } else if (!apiKey) {
+      fallbackReason = 'No hay clave API de Gemini configurada en la pestaña Perfil.';
+    }
+
+    // Motor local de respaldo cuando no hay clave o falla la conexión
     return new Promise((resolve) => {
       setTimeout(() => {
         const isBreakfast = promptComment && promptComment.toLowerCase().includes("tostada");
@@ -154,7 +186,7 @@ class NutritionManager {
         if (isBreakfast) {
           result = {
             dishName: "Media tostada en bar con tomate y jamón",
-            confidenceLevel: "Alta (88%)",
+            confidenceLevel: "Simulado (sin IA)",
             uncertaintyDisclaimer: "Valores aproximados. En hostelería el aceite y el espesor del pan pueden variar sensiblemente.",
             celiacAlert: "ADVERTENCIA CELIAQUÍA: Exigir tostadora exclusiva o bolsa de tostado para evitar contaminación cruzada con migas de pan con gluten.",
             items: [
@@ -171,7 +203,7 @@ class NutritionManager {
         } else {
           result = {
             dishName: "Plato casero de Arroz con Pollo y guarnición",
-            confidenceLevel: "Media-Alta (82%)",
+            confidenceLevel: "Simulado (sin IA)",
             uncertaintyDisclaimer: "Los gramos de carne y aceite se estiman por volumen visual. Corrige las cantidades si pesaste los alimentos.",
             celiacAlert: "Atención: Si se usaron caldos preparados, pastillas de caldo o salsas caseras, verificar que estén certificadas sin gluten.",
             items: [
@@ -201,8 +233,12 @@ class NutritionManager {
           }
         }
 
+        result.source = apiKey ? 'fallback' : 'local';
+        result.fallbackReason = fallbackReason;
+        result.photoPreview = imageData ? imageData.previewUrl : null;
+        this.currentPendingMeal = result;
         resolve(result);
-      }, 900);
+      }, 600);
     });
   }
 

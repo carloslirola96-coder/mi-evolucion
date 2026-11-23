@@ -557,6 +557,10 @@ class StoreManager {
     else list.push(routine);
     return this.set(STORAGE_KEYS.ROUTINES, list);
   }
+  deleteRoutine(id) {
+    const list = this.getRoutines().filter(r => r.id !== id);
+    return this.set(STORAGE_KEYS.ROUTINES, list);
+  }
 
   getSessions() { return this.get(STORAGE_KEYS.SESSIONS) || []; }
   saveCompletedSession(session) {
@@ -584,6 +588,11 @@ class StoreManager {
   addEvolutionEntry(entry) {
     const logs = this.getEvolutionLog();
     logs.push(entry);
+    logs.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return this.set(STORAGE_KEYS.EVOLUTION_LOG, logs);
+  }
+  deleteEvolutionEntry(id) {
+    const logs = this.getEvolutionLog().filter(e => e.id !== id);
     return this.set(STORAGE_KEYS.EVOLUTION_LOG, logs);
   }
 

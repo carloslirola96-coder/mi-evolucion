@@ -52,14 +52,24 @@ class AICoachManager {
     const settings = window.AppStore.getSettings();
     if (settings.geminiApiKey && settings.geminiApiKey.trim() !== '') {
       try {
-        return await this.callGeminiAPI(settings.geminiApiKey, userMessage, ctx);
+        const aiReply = await this.callGeminiAPI(settings.geminiApiKey.trim(), userMessage, ctx);
+        return { text: aiReply, source: 'gemini' };
       } catch (err) {
         console.warn("Fallo en API externa, usando motor determinista local:", err);
+        return {
+          text: this.generateLocalEvidenceBasedResponse(q, ctx),
+          source: 'fallback',
+          error: err.message
+        };
       }
     }
 
     // Motor local determinista de alta calidad basado en reglas y evidencia deportiva
-    return this.generateLocalEvidenceBasedResponse(q, ctx);
+    return {
+      text: this.generateLocalEvidenceBasedResponse(q, ctx),
+      source: 'local',
+      error: 'Sin API Key configurada en Perfil'
+    };
   }
 
   generateLocalEvidenceBasedResponse(q, ctx) {
@@ -135,30 +145,196 @@ class AICoachManager {
 
   async callGeminiAPI(apiKey, prompt, context) {
     const systemPrompt = `
-      Eres el Entrenador Personal y Especialista en Readaptación Físico-Clínica de Carlo (29 años, 180cm, 74kg).
+      Eres el Entrenador Personal y Especialista en Readaptación Físico-Clínica de ${context.user.name} (${context.user.age} años, ${context.user.weight}kg).
       Condiciones médicas: Protrusiones discales L2-S1 (episodio nov 2026, flexión molesta, bipedestación bien), SLAP hombro derecho, codos/tríceps con historial, celíaco estricto, intolerante a lactosa, hernia de hiato. NO recomendar creatina.
       Contexto actual:
       ${JSON.stringify(context)}
       Responde de forma concisa, deportiva, empática, basada en evidencia científica (Schoenfeld, McGill), en español y con máxima seguridad articular.
     `;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: `${systemPrompt}\n\nPregunta del usuario: ${prompt}` }] }
-        ]
-      })
+    const { data } = await window.GeminiHelper.generateContent(apiKey, {
+      contents: [
+        { role: 'user', parts: [{ text: `${systemPrompt}\n\nPregunta del usuario: ${prompt}` }] }
+      ]
     });
 
-    const data = await res.json();
-    if (data.candidates && data.candidates[0].content.parts[0].text) {
-      return data.candidates[0].content.parts[0].text;
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) return text;
+    throw new Error('Respuesta vacía de Gemini API');
+  }
+
+  async testConnection(apiKey) {
+    if (!apiKey || !apiKey.trim()) {
+      return { ok: false, message: 'Introduce primero tu clave API de Google AI Studio.' };
     }
-    throw new Error("Respuesta inválida de Gemini API");
+    try {
+      window.GeminiHelper.clearCache();
+      const { model, data } = await window.GeminiHelper.generateContent(apiKey.trim(), {
+        contents: [{ role: 'user', parts: [{ text: 'Responde solo con la palabra: OK' }] }]
+      });
+      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return { ok: true, message: `¡Conexión correcta con ${model}!` };
+      }
+      return { ok: false, message: 'Respuesta vacía de Gemini.' };
+    } catch (err) {
+      return { ok: false, message: err.message || 'Error de red al conectar con Gemini' };
+    }
+  }
+
+  async generateRoutineWithAI({ prompt, category = 'Gimnasio', durationMinutes = 50 }) {
+    const settings = window.AppStore.getSettings();
+    const apiKey = settings && settings.geminiApiKey ? settings.geminiApiKey.trim() : '';
+    if (!apiKey) {
+      throw new Error('Configura primero tu clave API de Gemini en la pestaña Perfil.');
+    }
+
+    const profile = window.AppStore.getProfile();
+    const existingExercises = window.AppStore.getExercises().map(e => ({
+      id: e.id,
+      name: e.name,
+      muscleGroup: e.muscleGroup,
+      equipment: e.equipment
+    }));
+
+    const systemPrompt = `
+      Eres un entrenador personal y especialista en readaptación físico-clínica.
+      Diseña UNA rutina de entrenamiento segura y efectiva para ${profile.name} (${profile.age} años, ${profile.weight} kg).
+      Historial clínico OBLIGATORIO a respetar:
+      ${JSON.stringify(profile.medicalHistory)}
+
+      Petición del usuario: "${prompt}"
+      Categoría: "${category}" ("Gimnasio" o "Doméstica")
+      Duración objetivo: ${durationMinutes} minutos.
+
+      Biblioteca de ejercicios ya existentes (reutiliza su "exerciseId" exacto cuando encaje, o deja "exerciseId": null si creas uno nuevo):
+      ${JSON.stringify(existingExercises)}
+
+      Responde OBLIGATORIAMENTE en JSON puro (sin markdown ni texto adicional) con este esquema exacto:
+      {
+        "name": "Nombre corto y claro de la rutina",
+        "category": "${category}",
+        "type": "${category === 'Doméstica' ? 'readaptacion' : 'hipertrofia'}",
+        "statusBadge": "Generada con IA",
+        "estimatedMinutes": ${durationMinutes},
+        "notes": "Resumen breve del enfoque de la sesión y precauciones clave",
+        "exercises": [
+          {
+            "exerciseId": "id_existente_o_null",
+            "name": "Nombre del ejercicio",
+            "muscleGroup": "Grupo muscular principal",
+            "equipment": "Máquina / Mancuernas / Polea / Suelo",
+            "notes": "Indicación técnica y de seguridad articular",
+            "safetyTag": "Etiqueta corta de seguridad",
+            "axialLoad": "Nula / Baja / Moderada",
+            "targetSets": 3,
+            "targetReps": "10-12",
+            "targetWeight": 20,
+            "restSeconds": 75
+          }
+        ]
+      }
+    `;
+
+    const { model, data } = await window.GeminiHelper.generateContent(apiKey, {
+      contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        response_mime_type: 'application/json',
+        temperature: 0.4
+      }
+    });
+
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) throw new Error('Gemini devolvió una respuesta vacía.');
+
+    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (!parsed || !Array.isArray(parsed.exercises) || parsed.exercises.length === 0) {
+      throw new Error('La rutina generada no contiene ejercicios válidos.');
+    }
+
+    parsed.modelUsed = model;
+    return parsed;
   }
 }
+
+window.GeminiHelper = {
+  cachedModel: null,
+  cachedKey: null,
+
+  clearCache() {
+    this.cachedModel = null;
+    this.cachedKey = null;
+  },
+
+  async getCandidateModels(apiKey) {
+    const defaults = ['gemini-3.8-flash', 'gemini-3.0-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    if (this.cachedModel && this.cachedKey === apiKey) {
+      return [this.cachedModel, ...defaults.filter(m => m !== this.cachedModel)];
+    }
+
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+      if (res.ok) {
+        const json = await res.json();
+        const available = (json.models || [])
+          .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+          .map(m => (m.name || '').replace(/^models\//, ''))
+          .filter(name => /^gemini-.*flash/i.test(name) && !/(tts|audio|image|embedding)/i.test(name));
+
+        if (available.length > 0) {
+          // Ordenar priorizando las versiones más recientes y los modelos flash estándar sobre lite/exp
+          available.sort((a, b) => {
+            const score = (name) => {
+              const verMatch = name.match(/gemini-(\d+(?:\.\d+)?)/i);
+              const ver = verMatch ? parseFloat(verMatch[1]) : 0;
+              const isLite = /lite/i.test(name) ? -0.1 : 0;
+              const isPreview = /(preview|exp)/i.test(name) ? -0.05 : 0;
+              return ver + isLite + isPreview;
+            };
+            return score(b) - score(a);
+          });
+          return [...new Set([...available, ...defaults])];
+        }
+      }
+    } catch (e) {
+      console.warn('No se pudo listar modelos de Gemini, usando lista por defecto:', e);
+    }
+
+    return defaults;
+  },
+
+  async generateContent(apiKey, payload) {
+    const models = await this.getCandidateModels(apiKey);
+    let lastError = 'No se pudo conectar con Gemini';
+
+    for (const model of models) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        this.cachedModel = model;
+        this.cachedKey = apiKey;
+        return { model, data };
+      }
+
+      const apiMsg = data?.error?.message || `HTTP ${res.status}`;
+      lastError = `${model}: ${apiMsg}`;
+
+      // Si el modelo no existe o fue retirado, probar el siguiente modelo disponible
+      const isModelRetired = res.status === 404 || /no longer available|not found|deprecated/i.test(apiMsg);
+      if (!isModelRetired) {
+        throw new Error(lastError);
+      }
+    }
+
+    throw new Error(lastError);
+  }
+};
 
 window.AICoach = new AICoachManager();

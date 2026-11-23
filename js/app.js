@@ -484,9 +484,22 @@ class Application {
   // --- VISTA 4: EVOLUCIÓN ---
   renderEvolucion(container) {
     const profile = window.AppStore.getProfile();
-    const logs = window.AppStore.getEvolutionLog();
+    const logs = [...window.AppStore.getEvolutionLog()].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     const sessions = window.AppStore.getSessions();
     const weeklyVol = window.ClinicalRules.calculateWeeklyVolume(sessions);
+
+    const latest = logs.length > 0 ? logs[0] : null;
+    const previous = logs.length > 1 ? logs[1] : null;
+
+    const currentWeight = latest && latest.weight != null ? latest.weight : profile.weight;
+    const currentWaist = latest && latest.waist != null ? latest.waist : null;
+
+    const weightDiff = (latest && previous && latest.weight != null && previous.weight != null)
+      ? (latest.weight - previous.weight).toFixed(1)
+      : null;
+    const waistDiff = (latest && previous && latest.waist != null && previous.waist != null)
+      ? (latest.waist - previous.waist).toFixed(1)
+      : null;
 
     container.innerHTML = `
       <div class="space-y-5 pb-24">
@@ -495,7 +508,7 @@ class Application {
             <span class="text-xs font-bold text-[var(--primary)] uppercase tracking-wider">Módulo de Evolución</span>
             <h1 class="text-2xl font-black">Progreso y Métricas</h1>
           </div>
-          <button onclick="MainApp.openAddEvolutionModal()" class="px-3.5 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded-xl shadow flex items-center gap-1">
+          <button onclick="MainApp.openAddEvolutionModal()" class="px-3.5 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded-xl shadow flex items-center gap-1 active:scale-95 transition">
             <span>+</span> Registrar Medida
           </button>
         </div>
@@ -504,15 +517,60 @@ class Application {
         <div class="grid grid-cols-2 gap-3">
           <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-2xl p-4 text-center">
             <span class="text-xs text-[var(--muted-foreground)]">Peso Corporal</span>
-            <div class="text-3xl font-black font-mono text-[var(--foreground)] mt-0.5">${profile.weight} kg</div>
-            <span class="text-[10px] text-emerald-400 font-semibold">Objetivo: Masa magra</span>
+            <div class="text-3xl font-black font-mono text-[var(--foreground)] mt-0.5">${currentWeight != null ? `${currentWeight} kg` : '-- kg'}</div>
+            <span class="text-[10px] ${weightDiff !== null ? 'text-blue-400' : 'text-emerald-400'} font-semibold">
+              ${weightDiff !== null ? `${Number(weightDiff) > 0 ? '+' : ''}${weightDiff} kg vs anterior` : (latest ? `Última: ${latest.date}` : 'Objetivo: Masa magra')}
+            </span>
           </div>
 
           <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-2xl p-4 text-center">
             <span class="text-xs text-[var(--muted-foreground)]">Perímetro Cintura</span>
-            <div class="text-3xl font-black font-mono text-amber-400 mt-0.5">84.5 cm</div>
-            <span class="text-[10px] text-[var(--muted-foreground)]">Medición matutina</span>
+            <div class="text-3xl font-black font-mono text-amber-400 mt-0.5">${currentWaist != null ? `${currentWaist} cm` : '-- cm'}</div>
+            <span class="text-[10px] text-[var(--muted-foreground)]">
+              ${waistDiff !== null ? `${Number(waistDiff) > 0 ? '+' : ''}${waistDiff} cm vs anterior` : (latest && latest.waist != null ? `Última: ${latest.date}` : 'Sin mediciones aún')}
+            </span>
           </div>
+        </div>
+
+        <!-- Historial de Mediciones Registradas -->
+        <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-2xl p-4 space-y-3 shadow-sm">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-sm">Historial de Mediciones</h3>
+            <span class="text-[11px] text-[var(--muted-foreground)]">${logs.length} registro${logs.length === 1 ? '' : 's'}</span>
+          </div>
+
+          ${logs.length === 0 ? `
+            <p class="text-xs text-[var(--muted-foreground)] text-center py-3">
+              Aún no has registrado ninguna medida. Pulsa "+ Registrar Medida" para añadir la primera.
+            </p>
+          ` : `
+            <div class="space-y-2">
+              ${logs.map(entry => `
+                <div class="p-3 bg-[var(--background)] rounded-xl border border-[var(--card-border)] text-xs space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-[var(--primary)]">${entry.date || 'Sin fecha'}</span>
+                    <button onclick="MainApp.deleteEvolutionEntry('${entry.id}')" class="text-[10px] text-red-400 hover:underline font-semibold">
+                      Eliminar
+                    </button>
+                  </div>
+                  <div class="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px]">
+                    ${entry.weight != null ? `<span>Peso: <strong>${entry.weight} kg</strong></span>` : ''}
+                    ${entry.waist != null ? `<span class="text-amber-400">Cintura: <strong>${entry.waist} cm</strong></span>` : ''}
+                    ${entry.chest != null ? `<span>Pecho: <strong>${entry.chest} cm</strong></span>` : ''}
+                    ${entry.armRight != null ? `<span>Brazo: <strong>${entry.armRight} cm</strong></span>` : ''}
+                    ${entry.thighRight != null ? `<span>Muslo: <strong>${entry.thighRight} cm</strong></span>` : ''}
+                  </div>
+                  ${(entry.painLumbarScore != null || entry.painShoulderScore != null) ? `
+                    <div class="text-[10px] text-[var(--muted-foreground)] flex gap-3">
+                      ${entry.painLumbarScore != null ? `<span>Lumbar: <strong>${entry.painLumbarScore}/10</strong></span>` : ''}
+                      ${entry.painShoulderScore != null ? `<span>Hombro: <strong>${entry.painShoulderScore}/10</strong></span>` : ''}
+                    </div>
+                  ` : ''}
+                  ${entry.notes ? `<p class="text-[11px] text-[var(--muted-foreground)] italic">"${entry.notes}"</p>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          `}
         </div>
 
         <!-- Panel de Volumen Semanal por Grupo Muscular -->
@@ -660,15 +718,28 @@ class Application {
     `;
     container.scrollTop = container.scrollHeight;
 
-    const response = await window.AICoach.askCoach(text);
+    const result = await window.AICoach.askCoach(text);
     const typingEl = document.getElementById(typingId);
     if (typingEl) typingEl.remove();
+
+    const responseText = typeof result === 'string' ? result : result.text;
+    const formattedHtml = responseText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br/>');
+
+    const badgeHtml = result.source === 'gemini'
+      ? `<span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">✨ Gemini IA</span>`
+      : `<span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">⚡ Modo local${result.error ? ` (${result.error})` : ''}</span>`;
 
     container.innerHTML += `
       <div class="flex gap-2.5 items-start">
         <span class="w-7 h-7 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">IA</span>
         <div class="bg-[var(--background)] p-3 rounded-2xl rounded-tl-none border border-[var(--card-border)] space-y-1.5 max-w-[85%] text-xs leading-relaxed">
-          ${response.replace(/\n/g, '<br/>')}
+          <div>${badgeHtml}</div>
+          <div>${formattedHtml}</div>
         </div>
       </div>
     `;
@@ -750,15 +821,27 @@ class Application {
 
         <!-- Clave API Opcional para Gemini (Totalmente gratuita) -->
         <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-2xl p-4 space-y-3">
-          <h3 class="font-bold text-sm">IA Externa (Opcional - Coste Cero)</h3>
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-sm">IA Externa (Gemini Flash)</h3>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-md ${settings.geminiApiKey ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'}">
+              ${settings.geminiApiKey ? 'Clave guardada' : 'Sin clave'}
+            </span>
+          </div>
           <p class="text-xs text-[var(--muted-foreground)]">
-            La app funciona 100% offline con el motor determinista. Si deseas conectar Gemini 1.5 Flash gratuitamente desde Google AI Studio, puedes pegar tu clave personal aquí:
+            Para activar el <strong>Coach IA real</strong> y el <strong>análisis de calorías por foto</strong>, consigue una clave gratuita en
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="text-[var(--primary)] underline font-semibold">Google AI Studio</a> y pégala aquí:
           </p>
-          <input type="password" id="gemini-key-input" placeholder="Pega tu clave gratuita de Google AI Studio..." value="${settings.geminiApiKey || ''}"
+          <input type="password" id="gemini-key-input" placeholder="Pega tu clave de Google AI Studio (AIza...)..." value="${settings.geminiApiKey || ''}"
             class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl text-xs text-[var(--foreground)]" />
-          <button onclick="MainApp.saveGeminiApiKey()" class="w-full py-2 bg-[var(--primary)] text-white text-xs font-bold rounded-xl">
-            Guardar Clave de IA
-          </button>
+          <div class="flex gap-2">
+            <button onclick="MainApp.saveGeminiApiKey()" class="flex-1 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded-xl">
+              Guardar Clave
+            </button>
+            <button onclick="MainApp.testGeminiApiKey()" class="px-4 py-2 bg-[var(--background)] border border-[var(--card-border)] text-xs font-bold rounded-xl hover:border-[var(--primary)]">
+              Probar conexión
+            </button>
+          </div>
+          <div id="gemini-test-status" class="text-xs hidden"></div>
         </div>
       </div>
     `;
@@ -771,6 +854,28 @@ class Application {
     settings.geminiApiKey = input.value.trim();
     window.AppStore.saveSettings(settings);
     alert("¡Clave de IA guardada correctamente en el almacenamiento local!");
+  }
+
+  async testGeminiApiKey() {
+    const input = document.getElementById('gemini-key-input');
+    const statusEl = document.getElementById('gemini-test-status');
+    if (!input || !statusEl) return;
+
+    const key = input.value.trim();
+    statusEl.className = 'text-xs p-2.5 rounded-xl bg-[var(--background)] border border-[var(--card-border)] text-[var(--muted-foreground)]';
+    statusEl.textContent = 'Probando conexión con Gemini Flash...';
+
+    const res = await window.AICoach.testConnection(key);
+    if (res.ok) {
+      const settings = window.AppStore.getSettings();
+      settings.geminiApiKey = key;
+      window.AppStore.saveSettings(settings);
+      statusEl.className = 'text-xs p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold';
+      statusEl.textContent = '✓ ' + res.message + ' (Clave guardada automáticamente).';
+    } else {
+      statusEl.className = 'text-xs p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300';
+      statusEl.textContent = '✕ Error: ' + res.message;
+    }
   }
 
   exportDataBackup() {
@@ -876,30 +981,47 @@ class Application {
     `;
 
     const result = await window.NutritionEngine.analyzeMealPhoto(file);
+    const isRealAI = result.source === 'gemini';
 
     modal.innerHTML = `
       <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-[var(--foreground)] max-h-[90vh] overflow-y-auto">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Análisis IA Finalizado</span>
+            <span class="text-xs font-bold ${isRealAI ? 'text-emerald-400' : 'text-amber-400'} uppercase tracking-wider">
+              ${isRealAI ? '✨ Análisis Gemini IA Finalizado' : '⚠️ Análisis Simulado (Sin IA real)'}
+            </span>
             <button onclick="document.getElementById('global-modal').innerHTML=''" class="text-[var(--muted-foreground)] text-lg">✕</button>
           </div>
+
+          ${!isRealAI ? `
+            <div class="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-200 space-y-1.5">
+              <div class="font-bold">No se pudo usar Gemini Vision</div>
+              <p class="text-[11px] opacity-90">${result.fallbackReason || 'Configura tu clave API en Perfil para analizar fotos reales.'}</p>
+              <button onclick="document.getElementById('global-modal').innerHTML=''; MainApp.switchTab('perfil');" class="text-[11px] font-bold underline text-amber-300">
+                Ir a Perfil para configurar la clave →
+              </button>
+            </div>
+          ` : ''}
+
+          ${result.photoPreview ? `
+            <img src="${result.photoPreview}" alt="Plato analizado" class="w-full h-40 object-cover rounded-2xl border border-[var(--card-border)]" />
+          ` : ''}
 
           <h3 class="font-black text-lg">${result.dishName}</h3>
           
           <div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs space-y-1 text-amber-200">
             <div class="font-bold">⚠️ Protocolo Celiaquía</div>
-            <p class="text-[11px]">${result.celiacAlert}</p>
+            <p class="text-[11px]">${result.celiacAlert || 'Verificar ingredientes y posible contaminación cruzada.'}</p>
           </div>
 
           <!-- Ficha de desglose con cantidades editables -->
           <div class="space-y-2">
             <h4 class="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Ingredientes Identificados</h4>
-            ${result.items.map(it => `
+            ${(result.items || []).map(it => `
               <div class="p-2.5 bg-[var(--background)] rounded-xl border border-[var(--card-border)] flex items-center justify-between text-xs">
                 <div>
                   <span class="font-bold block">${it.name}</span>
-                  <span class="text-[10px] text-[var(--muted-foreground)]">${it.estimatedPortion}</span>
+                  <span class="text-[10px] text-[var(--muted-foreground)]">${it.estimatedPortion || ''}</span>
                 </div>
                 <div class="text-right">
                   <span class="font-mono font-bold text-amber-400">${it.calories} kcal</span>
@@ -923,7 +1045,7 @@ class Application {
             <input type="text" id="ai-photo-comment" placeholder="Añade detalles si procede..." class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl text-xs" />
           </div>
 
-          <button onclick="MainApp.confirmAnalyzedMeal(${JSON.stringify(result).replace(/"/g, '&quot;')})" 
+          <button onclick="MainApp.confirmAnalyzedMeal()" 
             class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow active:scale-95 transition">
             ✓ CONFIRMAR COMIDA REALMENTE CONSUMIDA
           </button>
@@ -932,12 +1054,15 @@ class Application {
     `;
   }
 
-  confirmAnalyzedMeal(mealData) {
+  confirmAnalyzedMeal() {
+    const mealData = window.NutritionEngine.currentPendingMeal;
+    if (!mealData) return;
     const commentInput = document.getElementById('ai-photo-comment');
     if (commentInput && commentInput.value.trim()) {
       mealData.notes = commentInput.value.trim();
     }
     window.NutritionEngine.confirmMeal(mealData);
+    window.NutritionEngine.currentPendingMeal = null;
     document.getElementById('global-modal').innerHTML = '';
     alert("¡Comida registrada y macros actualizados!");
     this.renderCurrentTab();
@@ -965,6 +1090,420 @@ class Application {
 
     document.getElementById('global-modal').innerHTML = '';
     alert("¡Comida guardada!");
+    this.renderCurrentTab();
+  }
+
+  openAddEvolutionModal() {
+    const modal = document.getElementById('global-modal');
+    if (!modal) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const profile = window.AppStore.getProfile();
+    const logs = [...window.AppStore.getEvolutionLog()].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const last = logs[0] || {};
+
+    modal.innerHTML = `
+      <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-[var(--foreground)] max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-lg">Registrar Medición</h3>
+            <button onclick="document.getElementById('global-modal').innerHTML=''" class="text-[var(--muted-foreground)] text-lg">✕</button>
+          </div>
+
+          <div class="space-y-3 text-xs">
+            <div>
+              <label class="text-[var(--muted-foreground)] block mb-1">Fecha</label>
+              <input type="date" id="evo-date" value="${today}" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Peso (kg)</label>
+                <input type="number" step="0.1" id="evo-weight" placeholder="${last.weight ?? profile.weight ?? '74.0'}" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Cintura (cm)</label>
+                <input type="number" step="0.1" id="evo-waist" placeholder="${last.waist ?? '84.5'}" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Pecho (cm)</label>
+                <input type="number" step="0.1" id="evo-chest" placeholder="Opcional" class="w-full px-2.5 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Brazo (cm)</label>
+                <input type="number" step="0.1" id="evo-arm" placeholder="Opcional" class="w-full px-2.5 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Muslo (cm)</label>
+                <input type="number" step="0.1" id="evo-thigh" placeholder="Opcional" class="w-full px-2.5 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Molestia lumbar (0-10)</label>
+                <input type="number" min="0" max="10" id="evo-pain-lumbar" placeholder="0 = sin dolor" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Molestia hombro (0-10)</label>
+                <input type="number" min="0" max="10" id="evo-pain-shoulder" placeholder="0 = sin dolor" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+            </div>
+
+            <div>
+              <label class="text-[var(--muted-foreground)] block mb-1">Notas (opcional)</label>
+              <input type="text" id="evo-notes" placeholder="Ej: Medición en ayunas..." class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+            </div>
+
+            <button onclick="MainApp.saveEvolutionEntry()" class="w-full py-3 bg-[var(--primary)] text-white font-bold text-xs rounded-xl shadow active:scale-95 transition">
+              Guardar Medición
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  saveEvolutionEntry() {
+    const parseOpt = (id) => {
+      const val = document.getElementById(id)?.value.trim();
+      if (!val) return null;
+      const num = parseFloat(val);
+      return Number.isFinite(num) ? num : null;
+    };
+
+    const date = document.getElementById('evo-date')?.value || new Date().toISOString().split('T')[0];
+    const weight = parseOpt('evo-weight');
+    const waist = parseOpt('evo-waist');
+    const chest = parseOpt('evo-chest');
+    const armRight = parseOpt('evo-arm');
+    const thighRight = parseOpt('evo-thigh');
+    const painLumbarScore = parseOpt('evo-pain-lumbar');
+    const painShoulderScore = parseOpt('evo-pain-shoulder');
+    const notes = document.getElementById('evo-notes')?.value.trim() || '';
+
+    if (weight === null && waist === null && chest === null && armRight === null && thighRight === null) {
+      alert('Introduce al menos una medida (peso, cintura, pecho, brazo o muslo).');
+      return;
+    }
+
+    const entry = {
+      id: 'evo_' + Date.now(),
+      date,
+      weight,
+      waist,
+      chest,
+      armRight,
+      thighRight,
+      painLumbarScore,
+      painShoulderScore,
+      notes
+    };
+
+    window.AppStore.addEvolutionEntry(entry);
+
+    if (weight !== null) {
+      const profile = window.AppStore.getProfile();
+      profile.weight = weight;
+      window.AppStore.saveProfile(profile);
+    }
+
+    document.getElementById('global-modal').innerHTML = '';
+    this.renderCurrentTab();
+  }
+
+  deleteEvolutionEntry(id) {
+    if (!confirm('¿Eliminar esta medición del historial?')) return;
+    window.AppStore.deleteEvolutionEntry(id);
+    this.renderCurrentTab();
+  }
+
+  // --- GENERAR NUEVA RUTINA CON IA Y EDITAR RUTINAS ---
+  showCreateRoutineModal() {
+    const modal = document.getElementById('global-modal');
+    if (!modal) return;
+    this.pendingGeneratedRoutine = null;
+
+    modal.innerHTML = `
+      <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-[var(--foreground)] max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-[10px] font-bold text-[var(--primary)] uppercase tracking-wider">Generador Inteligente</span>
+              <h3 class="font-bold text-lg">Nueva Rutina con IA ✨</h3>
+            </div>
+            <button onclick="document.getElementById('global-modal').innerHTML=''" class="text-[var(--muted-foreground)] text-lg">✕</button>
+          </div>
+
+          <p class="text-xs text-[var(--muted-foreground)]">
+            Describe qué quieres entrenar y la IA diseñará la rutina respetando automáticamente tu historial lumbar (L2-S1), hombro derecho (SLAP) y codos.
+          </p>
+
+          <!-- Sugerencias rápidas -->
+          <div class="flex flex-wrap gap-1.5 text-[11px]">
+            <button type="button" onclick="document.getElementById('ai-routine-prompt').value='Full Body equilibrado en máquinas, seguro para lumbar y hombro'" class="px-2.5 py-1 bg-[var(--background)] border border-[var(--card-border)] rounded-lg hover:border-[var(--primary)]">
+              🏋️ Full Body seguro
+            </button>
+            <button type="button" onclick="document.getElementById('ai-routine-prompt').value='Tren superior enfoque pecho, espalda y brazos sin sobrecargar hombro'" class="px-2.5 py-1 bg-[var(--background)] border border-[var(--card-border)] rounded-lg hover:border-[var(--primary)]">
+              💪 Tren superior
+            </button>
+            <button type="button" onclick="document.getElementById('ai-routine-prompt').value='Pierna y glúteo sin carga axial en columna para transferencia al pádel'" class="px-2.5 py-1 bg-[var(--background)] border border-[var(--card-border)] rounded-lg hover:border-[var(--primary)]">
+              🦵 Pierna y pádel
+            </button>
+            <button type="button" onclick="document.getElementById('ai-routine-prompt').value='Rutina corta de movilidad, core profundo y alivio lumbar en casa'; document.getElementById('ai-routine-category').value='Doméstica'; document.getElementById('ai-routine-duration').value='12';" class="px-2.5 py-1 bg-[var(--background)] border border-[var(--card-border)] rounded-lg hover:border-[var(--primary)]">
+              🧘 Core en casa
+            </button>
+          </div>
+
+          <div class="space-y-3 text-xs">
+            <div>
+              <label class="text-[var(--muted-foreground)] block mb-1">¿Qué rutina quieres que genere?</label>
+              <textarea id="ai-routine-prompt" rows="3" placeholder="Ej: Quiero una rutina de 45 min para fortalecer piernas, espalda y hombros sin dolor lumbar..."
+                class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl resize-none"></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Tipo</label>
+                <select id="ai-routine-category" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl">
+                  <option value="Gimnasio" selected>Gimnasio</option>
+                  <option value="Doméstica">Doméstica (Casa)</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[var(--muted-foreground)] block mb-1">Duración (min)</label>
+                <input type="number" id="ai-routine-duration" value="45" min="5" max="90" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+              </div>
+            </div>
+
+            <div id="ai-routine-error" class="hidden p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-xs"></div>
+
+            <button id="ai-routine-btn" onclick="MainApp.generateRoutineFromModal()" class="w-full py-3 bg-[var(--primary)] text-white font-bold text-xs rounded-xl shadow active:scale-95 transition">
+              ✨ Generar Rutina con Gemini IA
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async generateRoutineFromModal() {
+    const prompt = document.getElementById('ai-routine-prompt')?.value.trim();
+    const category = document.getElementById('ai-routine-category')?.value || 'Gimnasio';
+    const durationMinutes = parseInt(document.getElementById('ai-routine-duration')?.value, 10) || 45;
+    const errorEl = document.getElementById('ai-routine-error');
+    const btn = document.getElementById('ai-routine-btn');
+
+    if (!prompt) {
+      if (errorEl) {
+        errorEl.classList.remove('hidden');
+        errorEl.textContent = 'Escribe brevemente qué quieres entrenar o elige una sugerencia rápida arriba.';
+      }
+      return;
+    }
+
+    if (errorEl) errorEl.classList.add('hidden');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Diseñando rutina segura con IA...';
+    }
+
+    try {
+      const generated = await window.AICoach.generateRoutineWithAI({ prompt, category, durationMinutes });
+      this.pendingGeneratedRoutine = generated;
+      this.renderGeneratedRoutinePreview(generated);
+    } catch (err) {
+      if (errorEl) {
+        errorEl.classList.remove('hidden');
+        errorEl.textContent = 'Error: ' + (err.message || 'No se pudo generar la rutina.');
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '✨ Generar Rutina con Gemini IA';
+      }
+    }
+  }
+
+  renderGeneratedRoutinePreview(routine) {
+    const modal = document.getElementById('global-modal');
+    if (!modal) return;
+
+    modal.innerHTML = `
+      <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-[var(--foreground)] max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">✨ Rutina Generada (${routine.modelUsed || 'Gemini'})</span>
+            <button onclick="document.getElementById('global-modal').innerHTML=''" class="text-[var(--muted-foreground)] text-lg">✕</button>
+          </div>
+
+          <div class="space-y-1">
+            <h3 class="font-black text-base">${routine.name}</h3>
+            <p class="text-xs text-[var(--muted-foreground)]">${routine.notes || ''}</p>
+            <div class="flex gap-2 text-[10px] pt-1">
+              <span class="px-2 py-0.5 rounded-md bg-[var(--primary)]/15 text-[var(--primary)] font-bold">${routine.category}</span>
+              <span class="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 font-bold">~${routine.estimatedMinutes} min</span>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Ejercicios (${routine.exercises.length})</h4>
+            ${routine.exercises.map((ex, idx) => `
+              <div class="p-3 bg-[var(--background)] rounded-xl border border-[var(--card-border)] text-xs space-y-1">
+                <div class="flex items-start justify-between gap-2">
+                  <span class="font-bold">${idx + 1}. ${ex.name}</span>
+                  <span class="font-mono text-[11px] text-emerald-400 whitespace-nowrap">${ex.targetSets} × ${ex.targetReps} ${ex.targetWeight ? `@ ${ex.targetWeight}kg` : ''}</span>
+                </div>
+                <div class="flex flex-wrap gap-1.5 text-[10px]">
+                  ${ex.muscleGroup ? `<span class="text-[var(--muted-foreground)]">${ex.muscleGroup}</span>` : ''}
+                  ${ex.safetyTag ? `<span class="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 font-semibold">${ex.safetyTag}</span>` : ''}
+                </div>
+                ${ex.notes ? `<p class="text-[11px] text-[var(--muted-foreground)] leading-snug">${ex.notes}</p>` : ''}
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="flex gap-2 pt-1">
+            <button onclick="MainApp.showCreateRoutineModal()" class="px-4 py-3 bg-[var(--background)] border border-[var(--card-border)] text-xs font-bold rounded-xl">
+              Regenerar
+            </button>
+            <button onclick="MainApp.saveGeneratedRoutine()" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow active:scale-95 transition">
+              ✓ Guardar Rutina
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  saveGeneratedRoutine() {
+    const gen = this.pendingGeneratedRoutine;
+    if (!gen) return;
+
+    const mappedExercises = gen.exercises.map((ex, idx) => {
+      let exId = ex.exerciseId;
+      const exists = exId ? window.AppStore.getExerciseById(exId) : null;
+      if (!exists) {
+        exId = 'ex_ai_' + Date.now() + '_' + idx;
+        window.AppStore.saveExercise({
+          id: exId,
+          name: ex.name || `Ejercicio ${idx + 1}`,
+          muscleGroup: ex.muscleGroup || 'General',
+          secondaryMuscles: [],
+          equipment: ex.equipment || 'Gimnasio',
+          recommendedSets: String(ex.targetSets || 3),
+          recommendedReps: String(ex.targetReps || '10-12'),
+          recommendedRestSeconds: Number(ex.restSeconds) || 75,
+          notes: ex.notes || '',
+          safetyTag: ex.safetyTag || 'Adaptado IA',
+          axialLoad: ex.axialLoad || 'Baja'
+        });
+      }
+      return {
+        exerciseId: exId,
+        targetSets: Number(ex.targetSets) || 3,
+        targetReps: String(ex.targetReps || '10-12'),
+        targetWeight: Number(ex.targetWeight) || 0,
+        restSeconds: Number(ex.restSeconds) || 75
+      };
+    });
+
+    const newRoutine = {
+      id: 'rutina_ai_' + Date.now(),
+      name: gen.name || 'Rutina personalizada IA',
+      type: gen.type || (gen.category === 'Doméstica' ? 'readaptacion' : 'hipertrofia'),
+      category: gen.category === 'Doméstica' ? 'Doméstica' : 'Gimnasio',
+      statusBadge: 'Generada con IA',
+      estimatedMinutes: Number(gen.estimatedMinutes) || 45,
+      notes: gen.notes || '',
+      exercises: mappedExercises
+    };
+
+    window.AppStore.saveRoutine(newRoutine);
+    this.pendingGeneratedRoutine = null;
+    document.getElementById('global-modal').innerHTML = '';
+    this.renderCurrentTab();
+  }
+
+  editRoutine(routineId) {
+    const routine = window.AppStore.getRoutineById(routineId);
+    const modal = document.getElementById('global-modal');
+    if (!routine || !modal) return;
+
+    modal.innerHTML = `
+      <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-[var(--card)] border border-[var(--card-border)] rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl text-[var(--foreground)] max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-lg">Editar Rutina</h3>
+            <button onclick="document.getElementById('global-modal').innerHTML=''" class="text-[var(--muted-foreground)] text-lg">✕</button>
+          </div>
+
+          <div class="space-y-3 text-xs">
+            <div>
+              <label class="text-[var(--muted-foreground)] block mb-1">Nombre</label>
+              <input type="text" id="edit-routine-name" value="${routine.name.replace(/"/g, '&quot;')}" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl" />
+            </div>
+
+            <div>
+              <label class="text-[var(--muted-foreground)] block mb-1">Notas</label>
+              <textarea id="edit-routine-notes" rows="2" class="w-full px-3 py-2 bg-[var(--background)] border border-[var(--card-border)] rounded-xl resize-none">${routine.notes || ''}</textarea>
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-[var(--muted-foreground)] block font-bold uppercase text-[10px]">Ejercicios (Series / Reps / Peso kg)</label>
+              ${routine.exercises.map((ex, i) => {
+                const exData = window.AppStore.getExerciseById(ex.exerciseId) || { name: 'Ejercicio' };
+                return `
+                  <div class="p-2.5 bg-[var(--background)] rounded-xl border border-[var(--card-border)] space-y-1.5">
+                    <div class="font-bold truncate">${i + 1}. ${exData.name}</div>
+                    <div class="grid grid-cols-3 gap-2">
+                      <input type="number" id="edit-ex-sets-${i}" value="${ex.targetSets}" min="1" class="px-2 py-1.5 bg-[var(--card)] border border-[var(--card-border)] rounded-lg text-center" title="Series" />
+                      <input type="text" id="edit-ex-reps-${i}" value="${ex.targetReps}" class="px-2 py-1.5 bg-[var(--card)] border border-[var(--card-border)] rounded-lg text-center" title="Repeticiones" />
+                      <input type="number" step="0.5" id="edit-ex-weight-${i}" value="${ex.targetWeight}" class="px-2 py-1.5 bg-[var(--card)] border border-[var(--card-border)] rounded-lg text-center" title="Peso (kg)" />
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+
+            <div class="flex gap-2 pt-2">
+              <button onclick="MainApp.deleteRoutineById('${routine.id}')" class="px-4 py-3 bg-red-500/15 border border-red-500/30 text-red-300 font-bold text-xs rounded-xl">
+                Eliminar
+              </button>
+              <button onclick="MainApp.saveEditedRoutine('${routine.id}')" class="flex-1 py-3 bg-[var(--primary)] text-white font-bold text-xs rounded-xl shadow">
+                Guardar Cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  saveEditedRoutine(routineId) {
+    const routine = window.AppStore.getRoutineById(routineId);
+    if (!routine) return;
+
+    routine.name = document.getElementById('edit-routine-name')?.value.trim() || routine.name;
+    routine.notes = document.getElementById('edit-routine-notes')?.value.trim() || '';
+    routine.exercises = routine.exercises.map((ex, i) => ({
+      ...ex,
+      targetSets: parseInt(document.getElementById(`edit-ex-sets-${i}`)?.value, 10) || ex.targetSets,
+      targetReps: document.getElementById(`edit-ex-reps-${i}`)?.value.trim() || ex.targetReps,
+      targetWeight: parseFloat(document.getElementById(`edit-ex-weight-${i}`)?.value) || 0
+    }));
+
+    window.AppStore.saveRoutine(routine);
+    document.getElementById('global-modal').innerHTML = '';
+    this.renderCurrentTab();
+  }
+
+  deleteRoutineById(routineId) {
+    if (!confirm('¿Seguro que quieres eliminar esta rutina?')) return;
+    window.AppStore.deleteRoutine(routineId);
+    document.getElementById('global-modal').innerHTML = '';
     this.renderCurrentTab();
   }
 }
