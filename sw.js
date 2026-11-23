@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mi-evolucion-v5';
+const CACHE_NAME = 'mi-evolucion-v7';
 const ASSETS = [
   './',
   './index.html',

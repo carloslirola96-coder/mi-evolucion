@@ -43,8 +43,8 @@ class AICoachManager {
     };
   }
 
-  // Procesar pregunta del usuario
-  async askCoach(userMessage) {
+  // Procesar pregunta del usuario (opcionalmente enfocada a un tema concreto)
+  async askCoach(userMessage, topic = 'libre') {
     const ctx = this.buildStructuredContext();
     const q = userMessage.toLowerCase().trim();
 
@@ -52,7 +52,7 @@ class AICoachManager {
     const settings = window.AppStore.getSettings();
     if (settings.geminiApiKey && settings.geminiApiKey.trim() !== '') {
       try {
-        const aiReply = await this.callGeminiAPI(settings.geminiApiKey.trim(), userMessage, ctx);
+        const aiReply = await this.callGeminiAPI(settings.geminiApiKey.trim(), userMessage, ctx, topic);
         return { text: aiReply, source: 'gemini' };
       } catch (err) {
         console.warn("Fallo en API externa, usando motor determinista local:", err);
@@ -143,19 +143,30 @@ class AICoachManager {
     `;
   }
 
-  async callGeminiAPI(apiKey, prompt, context) {
+  async callGeminiAPI(apiKey, prompt, context, topic = 'libre') {
+    const topicInstructions = {
+      entrenamiento: `Céntrate SOLO en qué entrenamiento toca hoy (gimnasio máx 60 min o rutina core 8 min) respetando protrusiones L2-S1 y hombro SLAP. NO hables de cenas ni de pádel salvo que lo pregunte.`,
+      nutricion: `Céntrate SOLO en nutrición y opciones concretas de cena/comida (sin gluten estricto, sin lactosa, apto hernia de hiato) teniendo en cuenta que lleva ${context.todayNutrition.consumedProt}g/${context.todayNutrition.targetProt}g de proteína y ${context.todayNutrition.consumedCal}/${context.todayNutrition.targetCal} kcal. NO hables de rutinas de gimnasio.`,
+      lumbar: `Céntrate SOLO en pautas de alivio, readaptación y señales de alerta para molestias lumbares (L2-S1). NO hables de nutrición.`,
+      padel: `Céntrate SOLO en criterios y progresión para volver a jugar/competir al pádel protegiendo lumbar L2-S1 y hombro SLAP. NO hables de nutrición.`,
+      libre: `Responde directamente a la pregunta del usuario respetando su historial clínico (L2-S1, SLAP hombro derecho, celiaquía estricta, sin lactosa, hernia de hiato, sin creatina).`
+    };
+
     const systemPrompt = `
-      Eres el Entrenador Personal y Especialista en Readaptación Físico-Clínica de ${context.user.name} (${context.user.age} años, ${context.user.weight}kg).
-      Condiciones médicas: Protrusiones discales L2-S1 (episodio nov 2026, flexión molesta, bipedestación bien), SLAP hombro derecho, codos/tríceps con historial, celíaco estricto, intolerante a lactosa, hernia de hiato. NO recomendar creatina.
-      Contexto actual:
-      ${JSON.stringify(context)}
-      Responde de forma concisa, deportiva, empática, basada en evidencia científica (Schoenfeld, McGill), en español y con máxima seguridad articular.
+      Eres el entrenador personal y readaptador de ${context.user.name} (${context.user.age} años, ${context.user.weight} kg).
+      ${topicInstructions[topic] || topicInstructions.libre}
+      Último entreno: ${typeof context.lastWorkout === 'string' ? context.lastWorkout : `${context.lastWorkout.routine} (${context.lastWorkout.duration} min)`}.
+      Reglas de formato: responde en español, de forma MUY directa y escaneable (máximo 5-6 líneas o 3-4 viñetas breves), sin introducciones largas.
     `;
 
     const { data } = await window.GeminiHelper.generateContent(apiKey, {
       contents: [
-        { role: 'user', parts: [{ text: `${systemPrompt}\n\nPregunta del usuario: ${prompt}` }] }
-      ]
+        { role: 'user', parts: [{ text: `${systemPrompt}\n\nConsulta: ${prompt}` }] }
+      ],
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 2048
+      }
     });
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -258,12 +269,23 @@ class AICoachManager {
 }
 
 window.GeminiHelper = {
-  cachedModel: null,
-  cachedKey: null,
+  cachedModel: localStorage.getItem('mi_evolucion_gemini_model') || null,
+  cachedKey: localStorage.getItem('mi_evolucion_gemini_model_key') || null,
 
   clearCache() {
     this.cachedModel = null;
     this.cachedKey = null;
+    localStorage.removeItem('mi_evolucion_gemini_model');
+    localStorage.removeItem('mi_evolucion_gemini_model_key');
+  },
+
+  saveModelCache(model, apiKey) {
+    this.cachedModel = model;
+    this.cachedKey = apiKey;
+    try {
+      localStorage.setItem('mi_evolucion_gemini_model', model);
+      localStorage.setItem('mi_evolucion_gemini_model_key', apiKey);
+    } catch (e) {}
   },
 
   async getCandidateModels(apiKey) {
@@ -318,8 +340,7 @@ window.GeminiHelper = {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        this.cachedModel = model;
-        this.cachedKey = apiKey;
+        this.saveModelCache(model, apiKey);
         return { model, data };
       }
 

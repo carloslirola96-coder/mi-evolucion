@@ -5,6 +5,15 @@
 class Application {
   constructor() {
     this.currentTab = 'inicio';
+    this.currentCoachTopic = 'entrenamiento';
+    this.coachChatsByTopic = {
+      entrenamiento: [],
+      nutricion: [],
+      lumbar: [],
+      padel: [],
+      libre: []
+    };
+    this.coachLoadingByTopic = {};
   }
 
   init() {
@@ -627,123 +636,243 @@ class Application {
   }
 
   // --- VISTA 5: ENTRENADOR IA ---
-  renderEntrenador(container) {
-    container.innerHTML = `
-      <div class="space-y-4 pb-28 flex flex-col h-[calc(100vh-120px)]">
-        <div class="pt-1">
-          <span class="text-xs font-bold text-[var(--primary)] uppercase tracking-wider">Entrenador y Readaptador IA</span>
-          <h1 class="text-2xl font-black">Asistente Personal</h1>
-        </div>
-
-        <!-- Sugerencias de preguntas rápidas con un toque -->
-        <div class="flex overflow-x-auto gap-2 py-1 no-scrollbar flex-shrink-0">
-          <button onclick="MainApp.sendQuickCoachQuery('¿Qué entreno hoy?')" class="flex-shrink-0 px-3 py-1.5 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-xs font-medium hover:border-[var(--primary)]">
-            🎯 ¿Qué entreno hoy?
-          </button>
-          <button onclick="MainApp.sendQuickCoachQuery('¿Qué puedo cenar alto en proteína sin cocinar?')" class="flex-shrink-0 px-3 py-1.5 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-xs font-medium hover:border-[var(--primary)]">
-            🥗 Cena rápida sin cocinar
-          </button>
-          <button onclick="MainApp.sendQuickCoachQuery('Me ha molestado la espalda después del entrenamiento')" class="flex-shrink-0 px-3 py-1.5 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-xs font-medium hover:border-[var(--primary)]">
-            🛡 Molestia lumbar
-          </button>
-          <button onclick="MainApp.sendQuickCoachQuery('¿Cuándo podré volver a competir al pádel?')" class="flex-shrink-0 px-3 py-1.5 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-xs font-medium hover:border-[var(--primary)]">
-            🎾 Vuelta al pádel
-          </button>
-        </div>
-
-        <!-- Historial de conversación interactivo -->
-        <div id="ai-chat-messages" class="flex-1 overflow-y-auto space-y-3 p-3 bg-[var(--card)] rounded-2xl border border-[var(--card-border)] text-xs">
-          <!-- Mensaje de bienvenida inicial -->
-          <div class="flex gap-2.5 items-start">
-            <span class="w-7 h-7 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">IA</span>
-            <div class="bg-[var(--background)] p-3 rounded-2xl rounded-tl-none border border-[var(--card-border)] space-y-1.5 max-w-[85%]">
-              <p class="font-semibold text-sm">Hola Carlo,</p>
-              <p class="leading-relaxed text-[var(--foreground)]">
-                Tengo cargada en memoria tu ficha clínica: protrusiones discales L2-S1, lesión SLAP hombro derecho, celiaquía estricta y tu objetivo de recomposición corporal con 3 sesiones de gimnasio.
-              </p>
-              <p class="leading-relaxed text-[var(--muted-foreground)]">
-                ¿En qué puedo ayudarte hoy respecto a tus ejercicios, cargas o nutrición?
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Input fijo inferior para escribir -->
-        <div class="flex gap-2 pt-2 flex-shrink-0">
-          <input type="text" id="ai-chat-input" placeholder="Pregunta sobre cargas, lesiones o comidas..." 
-            onkeydown="if(event.key==='Enter') MainApp.sendCustomCoachMessage()"
-            class="flex-1 px-4 py-3 bg-[var(--card)] border border-[var(--card-border)] rounded-2xl text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] shadow-sm" />
-          <button onclick="MainApp.sendCustomCoachMessage()" class="px-5 py-3 bg-[var(--primary)] text-white font-bold text-xs rounded-2xl shadow active:scale-95 transition">
-            Enviar
-          </button>
-        </div>
-      </div>
-    `;
+  getCoachTopics() {
+    return [
+      {
+        id: 'entrenamiento',
+        label: '🎯 Entrenamiento',
+        title: 'Plan de Entrenamiento Hoy',
+        defaultPrompt: '¿Qué me recomiendas entrenar hoy según mi último entreno y mis lesiones?',
+        placeholder: 'Pregunta sobre ejercicios, pesos o rutinas...'
+      },
+      {
+        id: 'nutricion',
+        label: '🥗 Cena / Nutrición',
+        title: 'Consejo de Cena y Macros',
+        defaultPrompt: '¿Qué puedo cenar hoy alto en proteína y sin cocinar, adaptado a mis macros restantes?',
+        placeholder: 'Pregunta sobre cenas, proteínas o alimentos sin gluten...'
+      },
+      {
+        id: 'lumbar',
+        label: '🛡️ Molestia lumbar',
+        title: 'Protocolo Lumbar y Hombro',
+        defaultPrompt: 'Tengo algo de molestia lumbar después del día/entreno, ¿qué debo hacer hoy?',
+        placeholder: 'Describe tu molestia o pregunta sobre readaptación...'
+      },
+      {
+        id: 'padel',
+        label: '🎾 Vuelta al pádel',
+        title: 'Progresión para el Pádel',
+        defaultPrompt: '¿Cómo voy respecto a mi vuelta al pádel y qué debo cuidar ahora?',
+        placeholder: 'Pregunta sobre vuelta a pista o preparación para pádel...'
+      },
+      {
+        id: 'libre',
+        label: '💬 Chat libre',
+        title: 'Consulta Libre',
+        defaultPrompt: null,
+        placeholder: 'Escribe cualquier pregunta al Coach IA...'
+      }
+    ];
   }
 
-  async sendQuickCoachQuery(query) {
-    const input = document.getElementById('ai-chat-input');
-    if (input) input.value = query;
-    await this.sendCustomCoachMessage();
-  }
-
-  async sendCustomCoachMessage() {
-    const input = document.getElementById('ai-chat-input');
-    const container = document.getElementById('ai-chat-messages');
-    if (!input || !container) return;
-
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-
-    // Añadir mensaje del usuario
-    container.innerHTML += `
-      <div class="flex gap-2.5 justify-end">
-        <div class="bg-[var(--primary)] text-white p-3 rounded-2xl rounded-tr-none text-xs max-w-[85%] font-medium">
-          ${text}
-        </div>
-      </div>
-    `;
-    container.scrollTop = container.scrollHeight;
-
-    // Indicador de escribiendo
-    const typingId = 'typing_' + Date.now();
-    container.innerHTML += `
-      <div id="${typingId}" class="flex gap-2.5 items-start">
-        <span class="w-7 h-7 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">IA</span>
-        <div class="bg-[var(--background)] p-3 rounded-2xl rounded-tl-none border border-[var(--card-border)] text-xs text-[var(--muted-foreground)] italic animate-pulse">
-          Consultando base de datos médica y biomecánica...
-        </div>
-      </div>
-    `;
-    container.scrollTop = container.scrollHeight;
-
-    const result = await window.AICoach.askCoach(text);
-    const typingEl = document.getElementById(typingId);
-    if (typingEl) typingEl.remove();
-
-    const responseText = typeof result === 'string' ? result : result.text;
-    const formattedHtml = responseText
+  formatCoachMarkdown(text) {
+    return (text || '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\n/g, '<br/>');
+  }
 
-    const badgeHtml = result.source === 'gemini'
-      ? `<span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">✨ Gemini IA</span>`
-      : `<span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">⚡ Modo local${result.error ? ` (${result.error})` : ''}</span>`;
+  renderEntrenador(container) {
+    const topics = this.getCoachTopics();
+    const activeTopic = topics.find(t => t.id === this.currentCoachTopic) || topics[0];
+    const messages = this.coachChatsByTopic[activeTopic.id] || [];
+    const isLoading = !!this.coachLoadingByTopic[activeTopic.id];
+    const profile = window.AppStore.getProfile();
 
-    container.innerHTML += `
-      <div class="flex gap-2.5 items-start">
-        <span class="w-7 h-7 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">IA</span>
-        <div class="bg-[var(--background)] p-3 rounded-2xl rounded-tl-none border border-[var(--card-border)] space-y-1.5 max-w-[85%] text-xs leading-relaxed">
-          <div>${badgeHtml}</div>
-          <div>${formattedHtml}</div>
+    container.innerHTML = `
+      <div class="space-y-3 pb-28 flex flex-col h-[calc(100vh-110px)]">
+        <div class="pt-1 flex items-center justify-between">
+          <div>
+            <span class="text-xs font-bold text-[var(--primary)] uppercase tracking-wider">Entrenador y Readaptador IA</span>
+            <h1 class="text-2xl font-black">Asistente Personal</h1>
+          </div>
+          ${messages.length > 0 ? `
+            <button onclick="MainApp.refreshCoachTopic('${activeTopic.id}')" class="px-3 py-1.5 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-[11px] font-semibold text-[var(--muted-foreground)] hover:border-[var(--primary)]">
+              ↻ Actualizar
+            </button>
+          ` : ''}
+        </div>
+
+        <!-- Pestañas de tema: cada selección muestra SOLO su propia consulta -->
+        <div class="flex overflow-x-auto gap-2 py-1 no-scrollbar flex-shrink-0">
+          ${topics.map(t => {
+            const isSelected = t.id === activeTopic.id;
+            return `
+              <button onclick="MainApp.selectCoachTopic('${t.id}')"
+                class="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${isSelected
+                  ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow'
+                  : 'bg-[var(--card)] text-[var(--foreground)] border-[var(--card-border)] hover:border-[var(--primary)]'}">
+                ${t.label}
+              </button>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Cabecera del tema activo -->
+        <div class="flex items-center justify-between px-1 text-[11px] text-[var(--muted-foreground)] flex-shrink-0">
+          <span class="font-bold text-[var(--foreground)]">${activeTopic.title}</span>
+          <span>Conversación separada por tema</span>
+        </div>
+
+        <!-- Historial exclusivo del tema seleccionado -->
+        <div id="ai-chat-messages" class="flex-1 overflow-y-auto space-y-3 p-3 bg-[var(--card)] rounded-2xl border border-[var(--card-border)] text-xs">
+          ${messages.length === 0 && !isLoading ? `
+            <div class="h-full flex flex-col items-center justify-center text-center p-4 space-y-3">
+              <div class="w-10 h-10 rounded-2xl bg-[var(--primary)]/15 text-[var(--primary)] flex items-center justify-center font-black text-base">IA</div>
+              <div class="space-y-1 max-w-xs">
+                <p class="font-bold text-sm text-[var(--foreground)]">${activeTopic.title}</p>
+                <p class="text-xs text-[var(--muted-foreground)]">
+                  ${activeTopic.defaultPrompt
+                    ? `Pulsa el botón para obtener una recomendación personalizada para ${profile.name} sobre este tema, o escribe tu propia pregunta abajo.`
+                    : `Haz cualquier consulta libre sobre entrenamientos, lesiones o nutrición.`}
+                </p>
+              </div>
+              ${activeTopic.defaultPrompt ? `
+                <button onclick="MainApp.runDefaultCoachTopic('${activeTopic.id}')" class="px-4 py-2.5 bg-[var(--primary)] text-white font-bold text-xs rounded-xl shadow active:scale-95 transition">
+                  ✨ Obtener recomendación ahora
+                </button>
+              ` : ''}
+            </div>
+          ` : `
+            ${messages.map(m => {
+              if (m.role === 'user') {
+                return `
+                  <div class="flex gap-2.5 justify-end">
+                    <div class="bg-[var(--primary)] text-white p-3 rounded-2xl rounded-tr-none text-xs max-w-[85%] font-medium">
+                      ${this.formatCoachMarkdown(m.text)}
+                    </div>
+                  </div>
+                `;
+              }
+              const badgeHtml = m.source === 'gemini'
+                ? `<span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">✨ Gemini IA</span>`
+                : `<span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">⚡ Modo local${m.error ? ` (${m.error})` : ''}</span>`;
+              return `
+                <div class="flex gap-2.5 items-start">
+                  <span class="w-7 h-7 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">IA</span>
+                  <div class="bg-[var(--background)] p-3 rounded-2xl rounded-tl-none border border-[var(--card-border)] space-y-1.5 max-w-[85%] text-xs leading-relaxed">
+                    <div>${badgeHtml}</div>
+                    <div>${this.formatCoachMarkdown(m.text)}</div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            ${isLoading ? `
+              <div class="flex gap-2.5 items-start">
+                <span class="w-7 h-7 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">IA</span>
+                <div class="bg-[var(--background)] p-3 rounded-2xl rounded-tl-none border border-[var(--card-border)] text-xs text-[var(--muted-foreground)] italic animate-pulse">
+                  Preparando respuesta de ${activeTopic.title.toLowerCase()}...
+                </div>
+              </div>
+            ` : ''}
+          `}
+        </div>
+
+        <!-- Input fijo inferior para escribir sobre el tema activo -->
+        <div class="flex gap-2 pt-1 flex-shrink-0">
+          <input type="text" id="ai-chat-input" placeholder="${activeTopic.placeholder}" 
+            onkeydown="if(event.key==='Enter') MainApp.sendCustomCoachMessage()"
+            ${isLoading ? 'disabled' : ''}
+            class="flex-1 px-4 py-3 bg-[var(--card)] border border-[var(--card-border)] rounded-2xl text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] shadow-sm disabled:opacity-60" />
+          <button onclick="MainApp.sendCustomCoachMessage()" ${isLoading ? 'disabled' : ''}
+            class="px-5 py-3 bg-[var(--primary)] text-white font-bold text-xs rounded-2xl shadow active:scale-95 transition disabled:opacity-60">
+            Enviar
+          </button>
         </div>
       </div>
     `;
-    container.scrollTop = container.scrollHeight;
+
+    const msgBox = document.getElementById('ai-chat-messages');
+    if (msgBox) msgBox.scrollTop = msgBox.scrollHeight;
+  }
+
+  selectCoachTopic(topicId) {
+    this.currentCoachTopic = topicId;
+    const topics = this.getCoachTopics();
+    const topic = topics.find(t => t.id === topicId);
+    const messages = this.coachChatsByTopic[topicId] || [];
+
+    this.renderCurrentTab();
+
+    // Si es un tema con consulta predefinida y aún está vacío, lanzarla automáticamente una sola vez
+    if (topic && topic.defaultPrompt && messages.length === 0 && !this.coachLoadingByTopic[topicId]) {
+      this.sendCoachMessageToTopic(topicId, topic.defaultPrompt);
+    }
+  }
+
+  runDefaultCoachTopic(topicId) {
+    const topic = this.getCoachTopics().find(t => t.id === topicId);
+    if (!topic || !topic.defaultPrompt || this.coachLoadingByTopic[topicId]) return;
+    this.sendCoachMessageToTopic(topicId, topic.defaultPrompt);
+  }
+
+  refreshCoachTopic(topicId) {
+    if (this.coachLoadingByTopic[topicId]) return;
+    this.coachChatsByTopic[topicId] = [];
+    const topic = this.getCoachTopics().find(t => t.id === topicId);
+    this.renderCurrentTab();
+    if (topic && topic.defaultPrompt) {
+      this.sendCoachMessageToTopic(topicId, topic.defaultPrompt);
+    }
+  }
+
+  async sendCustomCoachMessage() {
+    const input = document.getElementById('ai-chat-input');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    const topicId = this.currentCoachTopic || 'libre';
+    if (this.coachLoadingByTopic[topicId]) return;
+    input.value = '';
+    await this.sendCoachMessageToTopic(topicId, text);
+  }
+
+  async sendCoachMessageToTopic(topicId, text) {
+    if (!this.coachChatsByTopic[topicId]) {
+      this.coachChatsByTopic[topicId] = [];
+    }
+    this.coachChatsByTopic[topicId].push({ role: 'user', text });
+    this.coachLoadingByTopic[topicId] = true;
+
+    if (this.currentTab === 'entrenador' && this.currentCoachTopic === topicId) {
+      this.renderCurrentTab();
+    }
+
+    try {
+      const result = await window.AICoach.askCoach(text, topicId);
+      const responseText = typeof result === 'string' ? result : result.text;
+      this.coachChatsByTopic[topicId].push({
+        role: 'assistant',
+        text: responseText,
+        source: result.source || 'local',
+        error: result.error || null
+      });
+    } catch (err) {
+      this.coachChatsByTopic[topicId].push({
+        role: 'assistant',
+        text: 'No se pudo obtener respuesta en este momento. Inténtalo de nuevo.',
+        source: 'fallback',
+        error: err.message
+      });
+    } finally {
+      this.coachLoadingByTopic[topicId] = false;
+      if (this.currentTab === 'entrenador' && this.currentCoachTopic === topicId) {
+        this.renderCurrentTab();
+      }
+    }
   }
 
   // --- VISTA 6: PERFIL Y AJUSTES ---
